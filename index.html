@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en"> 
+ <head> 
+  <meta charset="UTF-8"> 
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+  <title>Crypto Flow Globe</title> 
+  <style>
+    body { margin: 0; background: black; color: white; font-family: Arial, sans-serif; }
+    #globeViz, #asiaViz, #euViz, #usViz { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; display: none; }
+    #globeViz.active, #asiaViz.active, #euViz.active, #usViz.active { display: block; }
+    #matrix, #trendChart { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; z-index: 2; }
+    select { background: black; color: white; border: 1px solid white; }
+  </style> 
+ </head> 
+ <body> 
+  <div id="globeViz" class="active"></div> 
+  <div id="asiaViz"></div> 
+  <div id="euViz"></div> 
+  <div id="usViz"></div> 
+  <div id="matrix"></div> 
+  <div id="trendChart"></div> <select id="globeRegion" style="position:absolute; top:10px; left:10px; z-index:2;"> <option value="globeViz">Global</option> <option value="asiaViz">Asia</option> <option value="euViz">Europe</option> <option value="usViz">US</option> </select> 
+  <audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio> 
+  <script src="https://unpkg.com/three"></script> 
+  <script src="https://unpkg.com/three-globe"></script> 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> 
+  <script>
+    const globeContainers = {
+      globeViz: document.getElementById('globeViz'),
+      asiaViz: document.getElementById('asiaViz'),
+      euViz: document.getElementById('euViz'),
+      usViz: document.getElementById('usViz'),
+    };
+
+    document.getElementById('globeRegion').addEventListener('change', e => {
+      Object.values(globeContainers).forEach(div => div.classList.remove('active'));
+      globeContainers[e.target.value].classList.add('active');
+    });
+
+    const alertSound = document.getElementById("alertSound");
+
+    let trendHistory = {};
+
+    function createGlobe(containerId) {
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera();
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      const renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.getElementById(containerId).appendChild(renderer.domElement);
+
+      const globe = new ThreeGlobe()
+        .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
+        .arcsData([])
+        .arcColor(() => ['lime', 'aqua'])
+        .arcDashLength(0.5)
+        .arcDashGap(1)
+        .arcDashInitialGap(() => Math.random())
+        .arcDashAnimateTime(2000)
+        .onArcHover(arc => console.log('Hovered:', arc))
+        .onArcClick(arc => alert(JSON.stringify(arc)));
+
+      scene.add(globe);
+      camera.position.z = 250;
+
+      function animate() {
+        requestAnimationFrame(animate);
+        globe.rotation.y += 0.002;
+        renderer.render(scene, camera);
+      }
+      animate();
+      return globe;
+    }
+
+    const mainGlobe = createGlobe('globeViz');
+    const asiaGlobe = createGlobe('asiaViz');
+    const euGlobe = createGlobe('euViz');
+    const usGlobe = createGlobe('usViz');
+
+    function updateMatrix(data) {
+      const matrix = document.getElementById('matrix');
+      matrix.innerHTML = `<h3>Matrix</h3><select id='assetFilter'><option value='ALL'>All</option>${[...new Set(data.map(d => d.from))].map(x => `<option>${x}</option>`).join('')}</select>`;
+      const table = document.createElement('table');
+      data.forEach(d => {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${d.from}</td><td>→</td><td>${d.to}</td><td>${d.volume}</td>`;
+        table.appendChild(row);
+      });
+      matrix.appendChild(table);
+      document.getElementById('assetFilter').onchange = e => {
+        const val = e.target.value;
+        updateMatrix(val === 'ALL' ? data : data.filter(x => x.from === val));
+      }
+    }
+
+    function updateTrendChart(asset, volumes) {
+      const ctx = document.getElementById("trendCtx") || document.createElement("canvas");
+      ctx.id = "trendCtx";
+      const chartDiv = document.getElementById("trendChart");
+      chartDiv.innerHTML = `<h3>Trend: ${asset}</h3>`;
+      chartDiv.appendChild(ctx);
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [...Array(volumes.length).keys()],
+          datasets: [{ label: asset, data: volumes, borderColor: 'aqua' }]
+        }
+      });
+    }
+
+    function simulateDataUpdate() {
+      const assets = ['BTC', 'ETH', 'SOL', 'USDT', 'BNB'];
+      const data = [];
+      for (let i = 0; i < 10; i++) {
+        const from = assets[Math.floor(Math.random() * assets.length)];
+        let to = from;
+        while (to === from) to = assets[Math.floor(Math.random() * assets.length)];
+        const volume = Math.floor(Math.random() * 5000);
+        data.push({ from, to, volume });
+        if (!trendHistory[from]) trendHistory[from] = [];
+        trendHistory[from].push(volume);
+        if (volume > 3000) alertSound.play();
+      }
+
+      mainGlobe.arcsData(data.map(d => ({
+        startLat: Math.random() * 180 - 90,
+        startLng: Math.random() * 360 - 180,
+        endLat: Math.random() * 180 - 90,
+        endLng: Math.random() * 360 - 180,
+        ...d
+      })));
+
+      updateMatrix(data);
+      updateTrendChart(data[0].from, trendHistory[data[0].from]);
+    }
+
+    setInterval(simulateDataUpdate, 30000);
+    simulateDataUpdate();
+  </script> 
+ 
+</body></html>
